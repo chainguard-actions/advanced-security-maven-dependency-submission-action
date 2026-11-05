@@ -1,0 +1,59 @@
+name: Test ignore-maven-wrapper uses mvn from PATH
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare project with a fake mvnw and fake mvn on PATH
+        run: |
+          D="$GITHUB_WORKSPACE/work-ignore-wrapper"
+          rm -rf "$D"
+          cp -r "$GITHUB_WORKSPACE/tests/fixtures/simple" "$D"
+          cat > "$D/mvnw" <<'EOF'
+          #!/bin/sh
+          echo "invoked" > "$(dirname "$0")/mvnw-invoked.txt"
+          exit 1
+          EOF
+          chmod +x "$D/mvnw"
+          BIN="$RUNNER_TEMP/fake-mvn-bin"
+          mkdir -p "$BIN"
+          cat > "$BIN/mvn" <<EOF
+          #!/bin/sh
+          echo "\$*" > "$D/mvn-invoked.txt"
+          exit 0
+          EOF
+          chmod +x "$BIN/mvn"
+          echo "$BIN" >> "$GITHUB_PATH"
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          directory: ${{ github.workspace }}/work-ignore-wrapper
+          ignore-maven-wrapper: 'true'
+      - name: Assert PATH mvn used and wrapper ignored
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          D="$GITHUB_WORKSPACE/work-ignore-wrapper"
+          if [ -f "$D/mvnw-invoked.txt" ]; then
+            echo "FAIL: mvnw was invoked despite ignore-maven-wrapper=true"
+            exit 1
+          fi
+          if [ ! -f "$D/mvn-invoked.txt" ]; then
+            echo "FAIL: mvn from PATH was not invoked"
+            exit 1
+          fi
+          ARGS="$(cat "$D/mvn-invoked.txt")"
+          echo "mvn args: $ARGS"
+          case "$ARGS" in
+            *depgraph-maven-plugin*) ;;
+            *) echo "FAIL: depgraph goal not passed to mvn"; exit 1 ;;
+          esac
+          if [ "$OUTCOME" != "success" ] && [ "$OUTCOME" != "failure" ]; then
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
+          echo "PASS"

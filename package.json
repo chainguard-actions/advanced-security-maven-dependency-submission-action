@@ -1,0 +1,60 @@
+{
+  "name": "maven-dependency-submission-action",
+  "version": "6.0.1",
+  "description": "Submit Maven dependencies to GitHub dependency submission API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "base-build": "npm ci && tsc",
+    "build": "npm run base-build && npm exec -- @vercel/ncc build --source-map lib/src/index.js",
+    "build-exe": "npm run build && pkg package.json --compress Gzip",
+    "test": "vitest --run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/advanced-security/maven-dependency-submission-action.git"
+  },
+  "keywords": [],
+  "author": "GitHub, Inc",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/advanced-security/maven-dependency-submission-action/issues"
+  },
+  "homepage": "https://github.com/advanced-security/maven-dependency-submission-action",
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "@github/dependency-submission-toolkit": "^2.0.5",
+    "commander": "^15.0.0",
+    "packageurl-js": "^2.0.1"
+  },
+  "overrides": {
+    "@actions/http-client": {
+      "undici": "^6.27.0"
+    }
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@vercel/ncc": "^0.45.0",
+    "chai": "^6.2.2",
+    "@yao-pkg/pkg": "^6.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "bin": {
+    "cli": "lib/src/executable/cli.js"
+  },
+  "pkg": {
+    "targets": [
+      "node22-linux-x64",
+      "node22-win-x64",
+      "node22-macos-x64"
+    ],
+    "assets": [
+      "package.json"
+    ],
+    "publicPackages": "*",
+    "outputPath": "cli"
+  }
+}
