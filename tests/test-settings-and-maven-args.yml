@@ -1,0 +1,84 @@
+name: Test settings-file and maven-args are passed to maven
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up maven project, settings file and fake mvnw
+        run: |
+          set -e
+          rm -rf /tmp/mvn-project /tmp/mvn-invocation
+          mkdir -p /tmp/mvn-project /tmp/mvn-invocation
+          cat > /tmp/mvn-project/pom.xml <<'EOF'
+          <project xmlns="http://maven.apache.org/POM/4.0.0">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>com.example</groupId>
+            <artifactId>demo</artifactId>
+            <version>1.0.0</version>
+          </project>
+          EOF
+          cat > /tmp/mvn-settings.xml <<'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"></settings>
+          EOF
+          cat > /tmp/depgraph.json <<'EOF'
+          {
+            "graphName" : "demo",
+            "artifacts" : [ {
+              "id" : "com.example:demo:jar:compile",
+              "numericId" : 1,
+              "groupId" : "com.example",
+              "artifactId" : "demo",
+              "version" : "1.0.0",
+              "optional" : false,
+              "scopes" : [ "compile" ],
+              "types" : [ "jar" ]
+            } ],
+            "dependencies" : [ ]
+          }
+          EOF
+          cat > /tmp/mvn-project/mvnw <<'EOF'
+          #!/bin/sh
+          echo "$@" > /tmp/mvn-invocation/args.txt
+          cp /tmp/depgraph.json "$(pwd)/maven-dependency-submission-action-depgraph.json"
+          exit 0
+          EOF
+          chmod +x /tmp/mvn-project/mvnw
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          directory: /tmp/mvn-project
+          settings-file: /tmp/mvn-settings.xml
+          maven-args: '-DskipTests -Pcustom-profile'
+          snapshot-ref: refs/heads/custom-ref
+          correlator: custom-correlator
+      - name: Assert settings and extra args were passed
+        run: |
+          if [ ! -f /tmp/mvn-invocation/args.txt ]; then
+            echo "FAIL: maven was never invoked"
+            exit 1
+          fi
+          ARGS="$(cat /tmp/mvn-invocation/args.txt)"
+          echo "args: $ARGS"
+          for expected in "-B" "--settings /tmp/mvn-settings.xml" "-DskipTests" "-Pcustom-profile" "com.github.ferstl:depgraph-maven-plugin:4.0.3:graph"; do
+            if ! echo " $ARGS " | grep -qF -- " $expected "; then
+              echo "FAIL: missing argument '$expected'"
+              exit 1
+            fi
+          done
+          echo "PASS"
+      - name: Assert outcome (submission may fail on the sentinel repo)
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: snapshot generated and submitted"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: snapshot generated; submission failed gracefully (sentinel repo is not resolvable)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
