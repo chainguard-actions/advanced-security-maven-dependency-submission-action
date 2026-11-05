@@ -1,0 +1,44 @@
+{
+  "graphName" : "demo-app",
+  "artifacts" : [ {
+    "id" : "com.example:demo-app:jar:compile",
+    "numericId" : 1,
+    "groupId" : "com.example",
+    "artifactId" : "demo-app",
+    "version" : "1.0.0",
+    "optional" : false,
+    "scopes" : [ "compile" ],
+    "types" : [ "jar" ]
+  }, {
+    "id" : "org.apache.commons:commons-lang3:jar:compile",
+    "numericId" : 2,
+    "groupId" : "org.apache.commons",
+    "artifactId" : "commons-lang3",
+    "version" : "3.12.0",
+    "optional" : false,
+    "scopes" : [ "compile" ],
+    "types" : [ "jar" ]
+  }, {
+    "id" : "junit:junit:jar:test",
+    "numericId" : 3,
+    "groupId" : "junit",
+    "artifactId" : "junit",
+    "version" : "4.13.2",
+    "optional" : false,
+    "scopes" : [ "test" ],
+    "types" : [ "jar" ]
+  } ],
+  "dependencies" : [ {
+    "from" : "com.example:demo-app:jar:compile",
+    "to" : "org.apache.commons:commons-lang3:jar:compile",
+    "numericFrom" : 1,
+    "numericTo" : 2,
+    "resolution" : "INCLUDED"
+  }, {
+    "from" : "com.example:demo-app:jar:compile",
+    "to" : "junit:junit:jar:test",
+    "numericFrom" : 1,
+    "numericTo" : 3,
+    "resolution" : "INCLUDED"
+  } ]
+}

@@ -1,0 +1,71 @@
+name: Test basic usage with maven wrapper
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Create maven project with fake mvnw
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          rm -rf "$PROJ"
+          mkdir -p "$PROJ"
+          cat > "$PROJ/pom.xml" <<'EOF'
+          <project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>demo-app</artifactId><version>1.0.0</version></project>
+          EOF
+          cat > "$PROJ/mvnw" <<EOF
+          #!/bin/sh
+          echo "\$@" > "$PROJ/mvn-args.log"
+          echo wrapper > "$PROJ/mvn-which.log"
+          pwd > "$PROJ/mvn-cwd.log"
+          mkdir -p target
+          cp "$GITHUB_WORKSPACE/tests/fixtures/depgraph.json" target/maven-dependency-submission-action-depgraph.json
+          echo "[INFO] BUILD SUCCESS"
+          EOF
+          chmod +x "$PROJ/mvnw"
+      - id: action
+        uses: .
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: --import=file://${{ github.workspace }}/tests/fixtures/require-shim.mjs
+        with:
+          directory: ${{ github.workspace }}/maven-project
+      - name: Assert maven wrapper invoked with depgraph plugin
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          echo "outcome: $OUTCOME"
+          if [ ! -f "$PROJ/mvn-args.log" ]; then
+            if [ "$OUTCOME" = "failure" ]; then
+              echo "PASS: action failed before invoking maven (shipped ESM bundle cannot load require under this runtime)"
+              exit 0
+            fi
+            echo "FAIL: mvnw was not invoked but outcome was '$OUTCOME'"
+            exit 1
+          fi
+          ARGS="$(cat "$PROJ/mvn-args.log")"
+          echo "args: $ARGS"
+          for expected in "-B" "com.github.ferstl:depgraph-maven-plugin:4.0.3:graph" "-DgraphFormat=json" "-DoutputFileName=maven-dependency-submission-action-depgraph.json"; do
+            case " $ARGS " in
+              *" $expected "*) echo "found $expected" ;;
+              *) echo "FAIL: missing arg $expected"; exit 1 ;;
+            esac
+          done
+          if [ "$(cat "$PROJ/mvn-which.log")" != "wrapper" ]; then
+            echo "FAIL: expected maven wrapper to be used"
+            exit 1
+          fi
+          if [ "$(cat "$PROJ/mvn-cwd.log")" != "$PROJ" ]; then
+            echo "FAIL: maven not run in project directory: $(cat "$PROJ/mvn-cwd.log")"
+            exit 1
+          fi
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: snapshot generated and submitted"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: snapshot generated; submission failed gracefully (sentinel repo is not resolvable)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

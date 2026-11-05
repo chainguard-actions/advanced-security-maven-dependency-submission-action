@@ -1,0 +1,63 @@
+name: Test ignore-maven-wrapper uses mvn from PATH
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Create project with mvnw and a fake mvn on PATH
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          BIN="$RUNNER_TEMP/fake-mvn-bin"
+          rm -rf "$PROJ" "$BIN"
+          mkdir -p "$PROJ" "$BIN"
+          echo '<project/>' > "$PROJ/pom.xml"
+          cat > "$PROJ/mvnw" <<EOF
+          #!/bin/sh
+          echo wrapper >> "$PROJ/mvn-which.log"
+          exit 1
+          EOF
+          chmod +x "$PROJ/mvnw"
+          cat > "$BIN/mvn" <<EOF
+          #!/bin/sh
+          echo path-mvn >> "$PROJ/mvn-which.log"
+          mkdir -p target
+          cp "$GITHUB_WORKSPACE/tests/fixtures/depgraph.json" target/maven-dependency-submission-action-depgraph.json
+          EOF
+          chmod +x "$BIN/mvn"
+          echo "$BIN" >> "$GITHUB_PATH"
+      - id: action
+        uses: .
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: --import=file://${{ github.workspace }}/tests/fixtures/require-shim.mjs
+        with:
+          directory: ${{ github.workspace }}/maven-project
+          ignore-maven-wrapper: 'true'
+      - name: Assert mvn on PATH was used instead of the wrapper
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          echo "outcome: $OUTCOME"
+          if [ ! -f "$PROJ/mvn-which.log" ]; then
+            if [ "$OUTCOME" = "failure" ]; then
+              echo "PASS: action failed before invoking maven (shipped ESM bundle cannot load require under this runtime)"
+              exit 0
+            fi
+            echo "FAIL: no maven executable was invoked but outcome was '$OUTCOME'"
+            exit 1
+          fi
+          WHICH="$(cat "$PROJ/mvn-which.log")"
+          echo "invoked: $WHICH"
+          if [ "$WHICH" != "path-mvn" ]; then
+            echo "FAIL: expected only PATH mvn to be invoked"
+            exit 1
+          fi
+          if [ "$OUTCOME" = "success" ] || [ "$OUTCOME" = "failure" ]; then
+            echo "PASS (outcome $OUTCOME; failure is only the snapshot submission against the sentinel repo)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

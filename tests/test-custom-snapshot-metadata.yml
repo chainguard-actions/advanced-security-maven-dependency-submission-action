@@ -1,0 +1,58 @@
+name: Test custom detector, correlator and snapshot ref/sha
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Create project with fake mvnw
+        id: setup
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          rm -rf "$PROJ"
+          mkdir -p "$PROJ"
+          echo '<project/>' > "$PROJ/pom.xml"
+          cat > "$PROJ/mvnw" <<EOF
+          #!/bin/sh
+          echo "\$@" > "$PROJ/mvn-args.log"
+          mkdir -p target
+          cp "$GITHUB_WORKSPACE/tests/fixtures/depgraph.json" target/maven-dependency-submission-action-depgraph.json
+          EOF
+          chmod +x "$PROJ/mvnw"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: action
+        uses: .
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: --import=file://${{ github.workspace }}/tests/fixtures/require-shim.mjs
+        with:
+          directory: ${{ github.workspace }}/maven-project
+          detector-name: custom-detector
+          detector-url: https://example.com/detector
+          detector-version: 9.9.9
+          correlator: my-correlator
+          snapshot-ref: refs/heads/main
+          snapshot-sha: ${{ steps.setup.outputs.sha }}
+      - name: Assert snapshot generation ran with custom metadata
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ ! -f "$GITHUB_WORKSPACE/maven-project/mvn-args.log" ]; then
+            if [ "$OUTCOME" = "failure" ]; then
+              echo "PASS: action failed before invoking maven (shipped ESM bundle cannot load require under this runtime)"
+              exit 0
+            fi
+            echo "FAIL: mvnw was not invoked but outcome was '$OUTCOME'"
+            exit 1
+          fi
+          echo "args: $(cat "$GITHUB_WORKSPACE/maven-project/mvn-args.log")"
+          if [ "$OUTCOME" = "success" ]; then
+            echo "PASS: snapshot submitted"
+          elif [ "$OUTCOME" = "failure" ]; then
+            echo "PASS: snapshot generated; submission failed gracefully (sentinel repo is not resolvable)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi

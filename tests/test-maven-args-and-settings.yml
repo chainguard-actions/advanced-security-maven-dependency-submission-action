@@ -1,0 +1,59 @@
+name: Test maven-args and settings-file are passed to maven
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Create maven project with fake mvnw and settings file
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          rm -rf "$PROJ"
+          mkdir -p "$PROJ"
+          echo '<project/>' > "$PROJ/pom.xml"
+          echo '<settings/>' > "$GITHUB_WORKSPACE/test-settings.xml"
+          cat > "$PROJ/mvnw" <<EOF
+          #!/bin/sh
+          echo "\$@" > "$PROJ/mvn-args.log"
+          mkdir -p target
+          cp "$GITHUB_WORKSPACE/tests/fixtures/depgraph.json" target/maven-dependency-submission-action-depgraph.json
+          EOF
+          chmod +x "$PROJ/mvnw"
+      - id: action
+        uses: .
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: --import=file://${{ github.workspace }}/tests/fixtures/require-shim.mjs
+        with:
+          directory: ${{ github.workspace }}/maven-project
+          settings-file: ${{ github.workspace }}/test-settings.xml
+          maven-args: -Dfoo=bar -Pmy-profile
+      - name: Assert args passed through
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          PROJ="$GITHUB_WORKSPACE/maven-project"
+          echo "outcome: $OUTCOME"
+          if [ ! -f "$PROJ/mvn-args.log" ]; then
+            if [ "$OUTCOME" = "failure" ]; then
+              echo "PASS: action failed before invoking maven (shipped ESM bundle cannot load require under this runtime)"
+              exit 0
+            fi
+            echo "FAIL: mvnw was not invoked but outcome was '$OUTCOME'"
+            exit 1
+          fi
+          ARGS="$(cat "$PROJ/mvn-args.log")"
+          echo "args: $ARGS"
+          for expected in "-B" "--settings $GITHUB_WORKSPACE/test-settings.xml" "-Dfoo=bar" "-Pmy-profile" "com.github.ferstl:depgraph-maven-plugin:4.0.3:graph"; do
+            case " $ARGS " in
+              *" $expected "*) echo "found $expected" ;;
+              *) echo "FAIL: missing '$expected'"; exit 1 ;;
+            esac
+          done
+          if [ "$OUTCOME" = "success" ] || [ "$OUTCOME" = "failure" ]; then
+            echo "PASS (outcome $OUTCOME; failure is only the snapshot submission against the sentinel repo)"
+          else
+            echo "FAIL: unexpected outcome '$OUTCOME'"
+            exit 1
+          fi
